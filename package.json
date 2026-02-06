@@ -1,0 +1,16 @@
+{
+  "name": "ai-art-detector",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build:wasm": "cd analyzer && wasm-pack build --target web --out-dir ../pkg",
+    "build:ts": "esbuild src/main.ts --bundle --outfile=js/bundle.js --format=esm --minify",
+    "build": "npm run build:wasm && npm run build:ts",
+    "watch": "esbuild src/main.ts --bundle --outfile=js/bundle.js --format=esm --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.0"
+  }
+}

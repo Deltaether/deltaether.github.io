@@ -1,0 +1,4 @@
+node_modules/
+analyzer/target/
+*.log
+.DS_Store

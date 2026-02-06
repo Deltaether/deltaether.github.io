@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Art Detector - Spot AI-Generated Illustrations</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔬</text></svg>">
+</head>
+<body>
+    <header>
+        <h1>AI Art Detector</h1>
+        <p class="subtitle">Forensic tools for digital illustrations & anime</p>
+    </header>
+
+    <main>
+        <section id="upload-section">
+            <div class="upload-area" id="dropzone">
+                <input type="file" id="imageInput" accept="image/*" hidden>
+                <div class="upload-content">
+                    <span class="upload-icon">📁</span>
+                    <p>Drop an image here or <button id="selectBtn">pick a file</button></p>
+                    <p class="hint">PNG, JPG, WebP supported (max 10MB)</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="preview-section" class="hidden">
+            <h2>Original Image</h2>
+            <div class="image-container">
+                <canvas id="originalCanvas"></canvas>
+            </div>
+            <div class="image-info" id="imageInfo"></div>
+            <button id="analyzeBtn" class="primary-btn">Run Analysis</button>
+        </section>
+
+        <section id="loading-section" class="hidden">
+            <div class="loader">
+                <div class="spinner"></div>
+                <p>Analyzing image...</p>
+                <p class="loader-step" id="loaderStep">Starting up</p>
+            </div>
+        </section>
+
+        <section id="results-section" class="hidden">
+            <h2>Analysis Results</h2>
+            
+            <div class="score-display" id="scoreDisplay">
+                <div class="score-circle" id="scoreCircle">
+                    <span class="score-value" id="scoreValue">0</span>
+                    <span class="score-label">/10</span>
+                </div>
+                <div class="score-text">
+                    <h3 id="verdictText">Processing...</h3>
+                    <p id="confidenceText">Calculating confidence...</p>
+                </div>
+            </div>
+
+            <div class="indicators-list" id="indicatorsList">
+                <!-- Filled by JS -->
+            </div>
+
+            <div class="analysis-grid">
+                <div class="analysis-panel">
+                    <h3>1. Noise Analysis</h3>
+                    <p class="panel-desc">Checks for that weird uniformity AI images have</p>
+                    <canvas id="noiseCanvas"></canvas>
+                    <div class="panel-result" id="noiseResult"></div>
+                </div>
+
+                <div class="analysis-panel">
+                    <h3>2. High Pass Filter</h3>
+                    <p class="panel-desc">Pulls out fine details - AI tends to be too smooth</p>
+                    <canvas id="highpassCanvas"></canvas>
+                    <div class="panel-result" id="highpassResult"></div>
+                </div>
+
+                <div class="analysis-panel">
+                    <h3>3. ELA (Error Level Analysis)</h3>
+                    <p class="panel-desc">Looks at compression patterns</p>
+                    <canvas id="elaCanvas"></canvas>
+                    <div class="panel-result" id="elaResult"></div>
+                </div>
+
+                <div class="analysis-panel">
+                    <h3>4. Posterize (Color Banding)</h3>
+                    <p class="panel-desc">Diffusion models leave these telltale color bands</p>
+                    <canvas id="posterizeCanvas"></canvas>
+                    <div class="panel-result" id="posterizeResult"></div>
+                </div>
+
+                <div class="analysis-panel">
+                    <h3>5. Channel Analysis</h3>
+                    <p class="panel-desc">RGB channels in AI art are weirdly correlated</p>
+                    <canvas id="channelCanvas"></canvas>
+                    <div class="panel-result" id="channelResult"></div>
+                </div>
+
+                <div class="analysis-panel highlight-panel">
+                    <h3>6. FFT Spectrum</h3>
+                    <p class="panel-desc"><strong>Big one:</strong> Cross pattern = AI + upscaling</p>
+                    <canvas id="fftCanvas"></canvas>
+                    <div class="panel-result" id="fftResult"></div>
+                </div>
+
+                <div class="analysis-panel">
+                    <h3>7. Brush vs AI Noise</h3>
+                    <p class="panel-desc">Real brushwork has direction, AI doesn't</p>
+                    <canvas id="noisePatternsCanvas"></canvas>
+                    <div class="panel-result" id="noisePatternsResult"></div>
+                </div>
+
+                <div class="analysis-panel">
+                    <h3>8. Impossible Gradients</h3>
+                    <p class="panel-desc">Gradients too perfect to paint by hand</p>
+                    <canvas id="gradientsCanvas"></canvas>
+                    <div class="panel-result" id="gradientsResult"></div>
+                </div>
+
+                <div class="analysis-panel highlight-panel">
+                    <h3>9. Style Coherence</h3>
+                    <p class="panel-desc">AI has unnaturally consistent style throughout</p>
+                    <canvas id="clipCanvas"></canvas>
+                    <div class="panel-result" id="clipResult"></div>
+                </div>
+            </div>
+
+            <button id="resetBtn" class="secondary-btn">Analyze another image</button>
+        </section>
+
+        <section id="guide-section">
+            <h2>How to Read the Results</h2>
+            
+            <div class="guide-content">
+                <article class="guide-item">
+                    <h3>Noise Analysis</h3>
+                    <p>This one extracts the noise layer using a median filter. When someone paints digitally, their brushes and textures add organic variation. AI-generated stuff tends to be suspiciously clean or has this artificial uniformity to it.</p>
+                    <ul>
+                        <li><span class="indicator-bad">Uniform red/orange</span> = Likely AI (no brush texture)</li>
+                        <li><span class="indicator-good">Varied, irregular patterns</span> = Signs of real brushwork</li>
+                    </ul>
+                </article>
+
+                <article class="guide-item">
+                    <h3>High Pass Filter</h3>
+                    <p>Isolates the high-frequency details. Diffusion models struggle with fine detail consistency - they either overdo it or leave things too smooth in weird places.</p>
+                    <ul>
+                        <li><span class="indicator-bad">Overly uniform brightness</span> = Synthetic rendering</li>
+                        <li><span class="indicator-good">Natural variation in detail</span> = Human work</li>
+                    </ul>
+                </article>
+
+                <article class="guide-item">
+                    <h3>ELA (Error Level Analysis)</h3>
+                    <p>Compares the image against a recompressed version. When everything was generated in one go (like AI does), the error levels are suspiciously even across the whole thing.</p>
+                    <ul>
+                        <li><span class="indicator-bad">Everything at the same level</span> = Generated all at once</li>
+                        <li><span class="indicator-good">Varied levels across areas</span> = Built up over time</li>
+                    </ul>
+                </article>
+
+                <article class="guide-item">
+                    <h3>Posterize (Color Banding)</h3>
+                    <p>Crushes the color depth to expose banding. Stable Diffusion, MidJourney, and similar models create these mathematically smooth gradients that real paint just doesn't do.</p>
+                    <ul>
+                        <li><span class="indicator-bad">Visible banding in gradients</span> = Diffusion model artifact</li>
+                        <li><span class="indicator-good">Irregular transitions</span> = Hand-painted</li>
+                    </ul>
+                </article>
+
+                <article class="guide-item">
+                    <h3>Channel Analysis</h3>
+                    <p>Looks at how R, G, B channels relate to each other. In real artwork, each channel picks up different stuff from brushes and blending. AI tends to keep them artificially in sync.</p>
+                    <ul>
+                        <li><span class="indicator-bad">High correlation between channels</span> = AI generation</li>
+                        <li><span class="indicator-good">Independent channel behavior</span> = Natural painting</li>
+                    </ul>
+                </article>
+
+                <article class="guide-item highlight">
+                    <h3>FFT Spectrum (Most Reliable)</h3>
+                    <p>This is the frequency domain view. If you see a clear cross or plus sign in the center, that's a dead giveaway - it means the image was upscaled with something like Real-ESRGAN or Waifu2x, which almost always means AI origin.</p>
+                    <ul>
+                        <li><span class="indicator-bad">Clear cross (+) pattern</span> = AI + upscaling (busted)</li>
+                        <li><span class="indicator-bad">Grid pattern</span> = GAN artifacts</li>
+                        <li><span class="indicator-good">Organic blob, no geometry</span> = Legit artwork</li>
+                    </ul>
+                    <p class="note">The cross shows up because upscalers repeat horizontal and vertical patterns. It's basically a fingerprint they can't hide.</p>
+                </article>
+
+                <article class="guide-item">
+                    <h3>Brush vs AI Noise</h3>
+                    <p>Artists have habits - they tend to stroke in certain directions, their pressure varies, their brushes have texture. AI just fills in pixels with no physical motion behind it.</p>
+                    <ul>
+                        <li><span class="indicator-bad">No directional preference</span> = AI (no hand movement)</li>
+                        <li><span class="indicator-good">Visible stroke direction</span> = Real brushwork</li>
+                        <li><span class="indicator-good">Pressure variation</span> = Tablet sensitivity</li>
+                    </ul>
+                    <p class="note">Drawing tablets detect pressure. That variation shows up in the texture. AI doesn't know how to fake this properly.</p>
+                </article>
+
+                <article class="guide-item">
+                    <h3>Impossible Gradients</h3>
+                    <p>Try painting a perfectly linear gradient by hand. You can't - your hand shakes, your brush loads unevenly, you go back over spots. AI just calculates it mathematically.</p>
+                    <ul>
+                        <li><span class="indicator-bad">Mathematically perfect gradients</span> = Computed, not painted</li>
+                        <li><span class="indicator-good">Micro-variations in transitions</span> = Airbrushed or blended by hand</li>
+                    </ul>
+                    <p class="note">Even when artists use gradient tools, they usually paint over them and add variation. Pure computed gradients are rare in finished work.</p>
+                </article>
+
+                <article class="guide-item highlight">
+                    <h3>Style Coherence (CLIP-Space)</h3>
+                    <p>This looks at how consistent the "style" is across different parts of the image. Real paintings are made in sessions - the artist's hand changes, lighting changes, they come back the next day. AI generates everything in one shot with perfect consistency.</p>
+                    <ul>
+                        <li><span class="indicator-bad">Suspiciously uniform style (>85%)</span> = AI's one-shot generation</li>
+                        <li><span class="indicator-good">Subtle style variations</span> = Different painting sessions</li>
+                    </ul>
+                    <p class="note">When you paint something over hours or days, there are tiny inconsistencies. That's human. AI doesn't have bad days.</p>
+                </article>
+            </div>
+        </section>
+
+        <section id="about-section">
+            <h2>About This Tool</h2>
+            <p>Built specifically for <strong>digital illustrations and anime-style art</strong>. Uses forensic techniques to tell apart AI-generated images (Stable Diffusion, NovelAI, MidJourney, etc.) from actual human artwork.</p>
+            <p>Everything runs <strong>in your browser</strong>. Your images never leave your computer.</p>
+            
+            <div class="tech-info">
+                <h3>What it checks (9 methods):</h3>
+                <ul>
+                    <li><strong>Noise Residual</strong> - Median filter extraction</li>
+                    <li><strong>High Pass</strong> - Fine detail analysis</li>
+                    <li><strong>ELA</strong> - Compression uniformity</li>
+                    <li><strong>Posterize</strong> - Color banding from diffusion</li>
+                    <li><strong>Channels</strong> - RGB correlation</li>
+                    <li><strong>FFT</strong> - Upscaling cross pattern</li>
+                    <li><strong>Brush Patterns</strong> - Stroke direction analysis</li>
+                    <li><strong>Gradients</strong> - Mathematical perfection check</li>
+                    <li><strong>Style Coherence</strong> - Semantic consistency</li>
+                </ul>
+            </div>
+
+            <div class="tech-info">
+                <h3>Why AI art looks different:</h3>
+                <ul>
+                    <li><strong>No stroke direction</strong> - There's no hand holding a stylus</li>
+                    <li><strong>No pressure variation</strong> - No tablet sensitivity</li>
+                    <li><strong>Perfect gradients</strong> - Humans can't do math that precisely</li>
+                    <li><strong>Uniform style</strong> - No breaks, no sessions, no tired hand</li>
+                    <li><strong>Missing texture</strong> - Real brushes leave marks</li>
+                </ul>
+            </div>
+
+            <p class="disclaimer">This is a research tool. Results are indicators, not proof. Heavy post-processing can throw off detection. Use your judgment alongside these results.</p>
+        </section>
+    </main>
+
+    <footer>
+        <p>AI Art Detector - 2026</p>
+    </footer>
+
+    <script type="module" src="js/bundle.js"></script>
+</body>
+</html>
