@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "build:wasm": "cd analyzer && wasm-pack build --target web --out-dir ../pkg",
-    "build:ts": "esbuild src/main.ts --bundle --outfile=js/bundle.js --format=esm --minify",
+    "build:worker": "esbuild src/worker.ts --bundle --outfile=js/worker.js --format=esm --minify",
+    "build:ts": "esbuild src/main.ts --bundle --outfile=js/bundle.js --format=esm --minify && npm run build:worker",
     "build": "npm run build:wasm && npm run build:ts",
     "watch": "esbuild src/main.ts --bundle --outfile=js/bundle.js --format=esm --watch",
     "typecheck": "tsc --noEmit"

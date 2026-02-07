@@ -1,78 +1,74 @@
 import { applyColormap } from './colormap';
 import type { AnalysisResult, MethodResult } from './types';
 
-// Will be loaded dynamically
-let Analyzer: any;
-
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
 interface PanelConfig {
-  canvas: HTMLCanvasElement;
-  result: HTMLElement;
+  canvasId: string;
+  resultId: string;
   colormap: string;
   getResult: (r: AnalysisResult) => MethodResult;
   formatMetrics: (m: MethodResult) => string;
   size?: (r: AnalysisResult) => number;
 }
 
-const panels: PanelConfig[] = [
+const panelConfigs: PanelConfig[] = [
   {
-    canvas: $('noiseCanvas'),
-    result: $('noiseResult'),
+    canvasId: 'noiseCanvas',
+    resultId: 'noiseResult',
     colormap: 'jet',
     getResult: r => r.noise,
     formatMetrics: m => `Mean: ${m.metrics[0][1].toFixed(2)} | STD: ${m.metrics[1][1].toFixed(2)}`,
   },
   {
-    canvas: $('highpassCanvas'),
-    result: $('highpassResult'),
+    canvasId: 'highpassCanvas',
+    resultId: 'highpassResult',
     colormap: 'hot',
     getResult: r => r.high_pass,
     formatMetrics: m => `Mean: ${m.metrics[0][1].toFixed(2)} | STD: ${m.metrics[1][1].toFixed(2)}`,
   },
   {
-    canvas: $('elaCanvas'),
-    result: $('elaResult'),
+    canvasId: 'elaCanvas',
+    resultId: 'elaResult',
     colormap: 'hot',
     getResult: r => r.ela,
     formatMetrics: m => `Mean: ${m.metrics[0][1].toFixed(2)}`,
   },
   {
-    canvas: $('posterizeCanvas'),
-    result: $('posterizeResult'),
+    canvasId: 'posterizeCanvas',
+    resultId: 'posterizeResult',
     colormap: 'viridis',
     getResult: r => r.posterize,
     formatMetrics: m => `Mean: ${m.metrics[0][1].toFixed(2)}`,
   },
   {
-    canvas: $('channelCanvas'),
-    result: $('channelResult'),
+    canvasId: 'channelCanvas',
+    resultId: 'channelResult',
     colormap: 'plasma',
     getResult: r => r.channels,
     formatMetrics: m => `Mean: ${m.metrics[0][1].toFixed(2)} | STD: ${m.metrics[1][1].toFixed(2)}`,
   },
   {
-    canvas: $('fftCanvas'),
-    result: $('fftResult'),
+    canvasId: 'fftCanvas',
+    resultId: 'fftResult',
     colormap: 'bone',
     getResult: r => r.fft,
     formatMetrics: m => `Cross Score: ${m.metrics[0][1].toFixed(3)}`,
     size: r => r.fft_size,
   },
   {
-    canvas: $('noisePatternsCanvas'),
-    result: $('noisePatternsResult'),
+    canvasId: 'noisePatternsCanvas',
+    resultId: 'noisePatternsResult',
     colormap: 'plasma',
     getResult: r => r.noise_patterns,
     formatMetrics: m => {
-      const uniformity = m.metrics.find(x => x[0] === 'uniformity')?.[1] ?? 0;
       const dir = m.metrics.find(x => x[0] === 'directional_bias')?.[1] ?? 0;
       return `Type: ${m.is_ai ? 'AI' : 'Brush'} | Dir: ${dir.toFixed(3)}`;
     },
   },
   {
-    canvas: $('gradientsCanvas'),
-    result: $('gradientsResult'),
+    canvasId: 'gradientsCanvas',
+    resultId: 'gradientsResult',
     colormap: 'hot',
     getResult: r => r.gradients,
     formatMetrics: m => {
@@ -81,8 +77,8 @@ const panels: PanelConfig[] = [
     },
   },
   {
-    canvas: $('clipCanvas'),
-    result: $('clipResult'),
+    canvasId: 'clipCanvas',
+    resultId: 'clipResult',
     colormap: 'viridis',
     getResult: r => r.clip_space,
     formatMetrics: m => {
@@ -97,13 +93,40 @@ const indicatorNames = [
   'FFT Cross', 'Brush', 'Gradients', 'Style',
 ];
 
+function getIndicatorClass(probability: number): string {
+  if (probability >= 0.65) return 'detected';
+  if (probability >= 0.35) return 'uncertain';
+  return 'clear';
+}
+
 let currentWidth = 0;
 let currentHeight = 0;
+let lastResult: AnalysisResult | null = null;
+let worker: Worker | null = null;
+let workerReady = false;
 
-async function loadWasm(): Promise<void> {
-  const wasm = await import('../pkg/ai_art_analyzer.js');
-  await wasm.default();
-  Analyzer = wasm.Analyzer;
+function initWorker(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    // Worker is pre-built to js/worker.js (absolute path from root)
+    worker = new Worker('/js/worker.js', { type: 'module' });
+    
+    const timeout = setTimeout(() => {
+      reject(new Error('Worker initialization timeout'));
+    }, 10000);
+
+    worker.onmessage = (e) => {
+      if (e.data.type === 'ready') {
+        clearTimeout(timeout);
+        workerReady = true;
+        resolve();
+      }
+    };
+
+    worker.onerror = (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    };
+  });
 }
 
 function handleFile(file: File): void {
@@ -127,22 +150,9 @@ function handleFile(file: File): void {
 }
 
 function displayPreview(img: HTMLImageElement, file: File): void {
-  const maxSize = 800;
-  let width = img.width;
-  let height = img.height;
-
-  if (width > maxSize || height > maxSize) {
-    if (width > height) {
-      height = (height / width) * maxSize;
-      width = maxSize;
-    } else {
-      width = (width / height) * maxSize;
-      height = maxSize;
-    }
-  }
-
-  currentWidth = Math.floor(width);
-  currentHeight = Math.floor(height);
+  // No size limit - let's see what it can handle
+  currentWidth = img.width;
+  currentHeight = img.height;
 
   const canvas = $<HTMLCanvasElement>('originalCanvas');
   canvas.width = currentWidth;
@@ -158,28 +168,72 @@ function displayPreview(img: HTMLImageElement, file: File): void {
   $('preview-section').classList.remove('hidden');
 }
 
+function updateProgress(step: string): void {
+  $('loaderStep').textContent = step;
+}
+
 async function runAnalysis(): Promise<void> {
+  if (!worker || !workerReady) {
+    alert('Analyzer not ready. Please refresh the page.');
+    return;
+  }
+
   $('preview-section').classList.add('hidden');
   $('loading-section').classList.remove('hidden');
-
-  await new Promise(r => setTimeout(r, 50));
+  $('progressFill').style.width = '0%';
+  updateProgress('Preparing image...');
 
   const canvas = $<HTMLCanvasElement>('originalCanvas');
   const ctx = canvas.getContext('2d')!;
   const imgData = ctx.getImageData(0, 0, currentWidth, currentHeight);
 
-  $('loaderStep').textContent = 'Running Rust analyzer...';
-  await new Promise(r => setTimeout(r, 50));
+  // Send to worker (runs in background thread)
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('Analysis timeout'));
+      $('loading-section').classList.add('hidden');
+      $('preview-section').classList.remove('hidden');
+      alert('Analysis took too long. Try a smaller image.');
+    }, 60000);
 
-  const analyzer = new Analyzer(
-    new Uint8Array(imgData.data.buffer),
-    currentWidth,
-    currentHeight
-  );
+    worker!.onmessage = (e) => {
+      const { type, step, result, error } = e.data;
 
-  const result: AnalysisResult = analyzer.analyze();
+      switch (type) {
+        case 'progress':
+          updateProgress(step);
+          $('progressFill').style.width = '50%';
+          break;
 
-  displayResults(result);
+        case 'result':
+          clearTimeout(timeout);
+          $('progressFill').style.width = '100%';
+          updateProgress('Rendering...');
+          lastResult = result;
+          setTimeout(() => {
+            displayResults(result);
+            sendAnalytics(result); // Send anonymous metrics
+            resolve();
+          }, 50);
+          break;
+
+        case 'error':
+          clearTimeout(timeout);
+          $('loading-section').classList.add('hidden');
+          $('preview-section').classList.remove('hidden');
+          alert(`Analysis failed: ${error}`);
+          reject(new Error(error));
+          break;
+      }
+    };
+
+    // Transfer the buffer for better performance
+    const buffer = imgData.data.buffer.slice(0);
+    worker!.postMessage(
+      { type: 'analyze', data: buffer, width: currentWidth, height: currentHeight },
+      [buffer]
+    );
+  });
 }
 
 function displayResults(result: AnalysisResult): void {
@@ -191,7 +245,7 @@ function displayResults(result: AnalysisResult): void {
   $('verdictText').textContent = result.verdict;
   $('confidenceText').textContent = `Confidence: ${result.confidence}`;
 
-  // Indicators
+  // Indicators with probability percentages
   const indicatorsList = $('indicatorsList');
   indicatorsList.innerHTML = '';
 
@@ -202,22 +256,29 @@ function displayResults(result: AnalysisResult): void {
   ];
 
   indicatorNames.forEach((name, i) => {
+    const prob = results[i].ai_probability;
+    const pct = Math.round(prob * 100);
     const tag = document.createElement('span');
-    tag.className = `indicator-tag ${results[i].is_ai ? 'detected' : 'clear'}`;
-    tag.innerHTML = `${results[i].is_ai ? '!' : '+'} ${name}`;
+    tag.className = `indicator-tag ${getIndicatorClass(prob)}`;
+    tag.innerHTML = `${pct}% ${name}`;
     indicatorsList.appendChild(tag);
   });
 
   // Render panels
-  panels.forEach((panel, i) => {
+  panelConfigs.forEach((panel) => {
+    const canvas = $<HTMLCanvasElement>(panel.canvasId);
+    const resultEl = $(panel.resultId);
     const methodResult = panel.getResult(result);
     const size = panel.size ? panel.size(result) : currentWidth;
     const w = panel.size ? size : currentWidth;
     const h = panel.size ? size : currentHeight;
 
-    renderCanvas(panel.canvas, methodResult.data, w, h, panel.colormap);
-    panel.result.textContent = panel.formatMetrics(methodResult);
-    panel.result.className = `panel-result ${methodResult.is_ai ? 'detected' : 'clear'}`;
+    const prob = methodResult.ai_probability;
+    const pct = Math.round(prob * 100);
+    
+    renderCanvas(canvas, methodResult.data, w, h, panel.colormap);
+    resultEl.textContent = `${pct}% AI | ${panel.formatMetrics(methodResult)}`;
+    resultEl.className = `panel-result ${getIndicatorClass(prob)}`;
   });
 }
 
@@ -237,30 +298,120 @@ function renderCanvas(
   ctx.putImageData(imgData, 0, 0);
 }
 
+const ANALYTICS_URL = 'https://script.google.com/macros/s/AKfycbwMJcZuj9hxCrGIKRqeZoE_ctpF4gtBpiqBXPhN3PvgbHqjFh1M3I1YohpGC7qXPFfbFQ/exec';
+
+function buildExportData(result: AnalysisResult) {
+  return {
+    timestamp: new Date().toISOString(),
+    dimensions: { width: currentWidth, height: currentHeight },
+    score: result.score,
+    verdict: result.verdict,
+    confidence: result.confidence,
+    methods: {
+      noise: {
+        ai_probability: result.noise.ai_probability,
+        metrics: Object.fromEntries(result.noise.metrics)
+      },
+      high_pass: {
+        ai_probability: result.high_pass.ai_probability,
+        metrics: Object.fromEntries(result.high_pass.metrics)
+      },
+      ela: {
+        ai_probability: result.ela.ai_probability,
+        metrics: Object.fromEntries(result.ela.metrics)
+      },
+      posterize: {
+        ai_probability: result.posterize.ai_probability,
+        metrics: Object.fromEntries(result.posterize.metrics)
+      },
+      channels: {
+        ai_probability: result.channels.ai_probability,
+        metrics: Object.fromEntries(result.channels.metrics)
+      },
+      fft: {
+        ai_probability: result.fft.ai_probability,
+        metrics: Object.fromEntries(result.fft.metrics)
+      },
+      noise_patterns: {
+        ai_probability: result.noise_patterns.ai_probability,
+        metrics: Object.fromEntries(result.noise_patterns.metrics)
+      },
+      gradients: {
+        ai_probability: result.gradients.ai_probability,
+        metrics: Object.fromEntries(result.gradients.metrics)
+      },
+      clip_space: {
+        ai_probability: result.clip_space.ai_probability,
+        metrics: Object.fromEntries(result.clip_space.metrics)
+      }
+    }
+  };
+}
+
+async function sendAnalytics(result: AnalysisResult): Promise<void> {
+  try {
+    const data = buildExportData(result);
+    await fetch(ANALYTICS_URL, {
+      method: 'POST',
+      mode: 'no-cors', // Apps Script doesn't support CORS preflight
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+  } catch (e) {
+    // Silent fail - don't interrupt user experience
+    console.debug('Analytics send failed:', e);
+  }
+}
+
+function exportResults(): void {
+  if (!lastResult) return;
+
+  const exportData = buildExportData(lastResult);
+
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `ai-detector-results-${Date.now()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function reset(): void {
   $('results-section').classList.add('hidden');
   $('preview-section').classList.add('hidden');
   $('upload-section').classList.remove('hidden');
+  lastResult = null;
 
   const input = $<HTMLInputElement>('imageInput');
   input.value = '';
 }
 
 async function init(): Promise<void> {
-  await loadWasm();
-
   const imageInput = $<HTMLInputElement>('imageInput');
   const selectBtn = $('selectBtn');
   const dropzone = $('dropzone');
   const analyzeBtn = $('analyzeBtn');
   const resetBtn = $('resetBtn');
+  const exportBtn = $('exportBtn');
+
+  const openFilePicker = () => {
+    imageInput.click();
+  };
 
   selectBtn.addEventListener('click', (e) => {
+    e.preventDefault();
     e.stopPropagation();
-    imageInput.click();
+    openFilePicker();
   });
 
-  dropzone.addEventListener('click', () => imageInput.click());
+  dropzone.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (target.id === 'selectBtn' || target.closest('#selectBtn')) return;
+    openFilePicker();
+  });
 
   dropzone.addEventListener('dragover', (e) => {
     e.preventDefault();
@@ -289,6 +440,15 @@ async function init(): Promise<void> {
 
   analyzeBtn.addEventListener('click', runAnalysis);
   resetBtn.addEventListener('click', reset);
+  exportBtn.addEventListener('click', exportResults);
+
+  // Initialize worker
+  try {
+    await initWorker();
+  } catch (err) {
+    console.error('Failed to initialize worker:', err);
+    alert('Failed to initialize analyzer. Please refresh the page.');
+  }
 }
 
 document.addEventListener('DOMContentLoaded', init);

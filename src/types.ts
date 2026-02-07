@@ -1,6 +1,6 @@
 export interface MethodResult {
   data: number[];
-  is_ai: boolean;
+  ai_probability: number;  // 0.0 - 1.0
   metrics: [string, number][];
 }
 

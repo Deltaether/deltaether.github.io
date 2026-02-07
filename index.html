@@ -15,11 +15,11 @@
 
     <main>
         <section id="upload-section">
+            <input type="file" id="imageInput" accept="image/*" hidden>
             <div class="upload-area" id="dropzone">
-                <input type="file" id="imageInput" accept="image/*" hidden>
                 <div class="upload-content">
                     <span class="upload-icon">📁</span>
-                    <p>Drop an image here or <button id="selectBtn">pick a file</button></p>
+                    <p>Drop an image here or <button type="button" id="selectBtn">pick a file</button></p>
                     <p class="hint">PNG, JPG, WebP supported (max 10MB)</p>
                 </div>
             </div>
@@ -39,6 +39,10 @@
                 <div class="spinner"></div>
                 <p>Analyzing image...</p>
                 <p class="loader-step" id="loaderStep">Starting up</p>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <p class="progress-text" id="progressText">Please wait...</p>
             </div>
         </section>
 
@@ -125,7 +129,10 @@
                 </div>
             </div>
 
-            <button id="resetBtn" class="secondary-btn">Analyze another image</button>
+            <div class="results-actions">
+                <button id="exportBtn" class="secondary-btn">Export Results (JSON)</button>
+                <button id="resetBtn" class="secondary-btn">Analyze another image</button>
+            </div>
         </section>
 
         <section id="guide-section">

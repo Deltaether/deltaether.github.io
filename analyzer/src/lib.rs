@@ -1,6 +1,7 @@
 use wasm_bindgen::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
+use rustfft::{FftPlanner, num_complex::Complex};
 
 #[wasm_bindgen(start)]
 pub fn init() {
@@ -11,7 +12,7 @@ pub fn init() {
 #[derive(Serialize, Deserialize)]
 pub struct MethodResult {
     pub data: Vec<u8>,
-    pub is_ai: bool,
+    pub ai_probability: f32,  // 0.0 = definitely human, 1.0 = definitely AI
     pub metrics: Vec<(String, f32)>,
 }
 
@@ -143,6 +144,19 @@ impl Analyzer {
         (mean, variance.sqrt())
     }
 
+    // Convert a value to probability using sigmoid-like curve
+    // center: value where probability = 0.5
+    // scale: how quickly it transitions (higher = sharper)
+    // invert: if true, lower values = higher AI probability
+    fn to_probability(value: f32, center: f32, scale: f32, invert: bool) -> f32 {
+        let x = if invert {
+            (center - value) * scale
+        } else {
+            (value - center) * scale
+        };
+        1.0 / (1.0 + (-x).exp())
+    }
+
     fn amplify_to_u8(data: &[f32], factor: f32) -> Vec<u8> {
         data.iter()
             .map(|&v| (v * factor).min(255.0).max(0.0) as u8)
@@ -160,14 +174,17 @@ impl Analyzer {
             .collect();
 
         let (mean, std) = Self::calc_stats(&noise);
-        // Threshold tuned for anime: std < 12 is suspiciously uniform
-        // Human digital art typically has std > 15 due to brush variation
-        let is_ai = std < 12.0 && mean < 4.0;
+        // std < 12 = AI, std > 18 = human, sigmoid centered at 15
+        let std_prob = Self::to_probability(std, 15.0, 0.3, true);
+        // mean < 4 = AI, mean > 8 = human
+        let mean_prob = Self::to_probability(mean, 6.0, 0.4, true);
+        let ai_probability = (std_prob * 0.7 + mean_prob * 0.3).clamp(0.0, 1.0);
+        
         let data = Self::amplify_to_u8(&noise, 10.0);
 
         MethodResult {
             data,
-            is_ai,
+            ai_probability,
             metrics: vec![
                 ("mean".into(), mean),
                 ("std".into(), std),
@@ -185,13 +202,13 @@ impl Analyzer {
             .collect();
 
         let (mean, std) = Self::calc_stats(&high_pass);
-        // Tuned: AI anime tends to have std < 18 (too uniform detail distribution)
-        let is_ai = std < 18.0;
+        // std < 18 = AI, std > 25 = human
+        let ai_probability = Self::to_probability(std, 21.0, 0.2, true);
         let data = Self::amplify_to_u8(&high_pass, 5.0);
 
         MethodResult {
             data,
-            is_ai,
+            ai_probability,
             metrics: vec![
                 ("mean".into(), mean),
                 ("std".into(), std),
@@ -221,14 +238,17 @@ impl Analyzer {
         }
 
         let (mean, std) = Self::calc_stats(&ela);
-        // Tuned for anime: mean < 5 AND std < 6 indicates AI
-        // Human digital art typically has mean > 5 due to varied brushwork
-        let is_ai = mean < 5.0 && std < 6.0;
+        // mean < 5 = AI, mean > 8 = human
+        let mean_prob = Self::to_probability(mean, 6.5, 0.4, true);
+        // std < 6 = AI, std > 10 = human  
+        let std_prob = Self::to_probability(std, 8.0, 0.3, true);
+        let ai_probability = (mean_prob * 0.5 + std_prob * 0.5).clamp(0.0, 1.0);
+        
         let data = Self::amplify_to_u8(&ela, 10.0);
 
         MethodResult {
             data,
-            is_ai,
+            ai_probability,
             metrics: vec![
                 ("mean".into(), mean),
                 ("std".into(), std),
@@ -257,14 +277,17 @@ impl Analyzer {
         }
 
         let (mean, std) = Self::calc_stats(&diff);
-        // Tuned: mean < 8 with low variance indicates AI's perfect gradients
-        // Human digital art typically has mean > 10 with higher variance
-        let is_ai = mean < 8.0 && std < 6.0;
+        // mean < 8 = AI, mean > 12 = human
+        let mean_prob = Self::to_probability(mean, 10.0, 0.3, true);
+        // std < 6 = AI, std > 10 = human
+        let std_prob = Self::to_probability(std, 8.0, 0.3, true);
+        let ai_probability = (mean_prob * 0.6 + std_prob * 0.4).clamp(0.0, 1.0);
+        
         let data = Self::amplify_to_u8(&diff, 5.0);
 
         MethodResult {
             data,
-            is_ai,
+            ai_probability,
             metrics: vec![
                 ("mean".into(), mean),
                 ("std".into(), std),
@@ -293,13 +316,13 @@ impl Analyzer {
         }
 
         let (mean, std) = Self::calc_stats(&channel_diff);
-        // Tuned: std < 12 indicates artificial channel correlation
-        let is_ai = std < 12.0;
+        // std < 12 = AI, std > 18 = human
+        let ai_probability = Self::to_probability(std, 15.0, 0.2, true);
         let data = Self::amplify_to_u8(&channel_diff, 3.0);
 
         MethodResult {
             data,
-            is_ai,
+            ai_probability,
             metrics: vec![
                 ("mean".into(), mean),
                 ("std".into(), std),
@@ -310,14 +333,16 @@ impl Analyzer {
     // Method 6: FFT Analysis
     // THE MOST RELIABLE for upscaled AI: cross pattern = Real-ESRGAN/Waifu2x
     fn analyze_fft(&self) -> (MethodResult, u32) {
-        let size: u32 = 512;
-        let _half = size / 2;
+        // Adaptive FFT size based on image dimensions
+        // Use next power of 2 of the smaller dimension, clamped to reasonable range
+        let min_dim = self.width.min(self.height);
+        let size = Self::optimal_fft_size(min_dim);
 
         // Resize to square
         let resized = self.resize_gray(size, size);
 
-        // Compute simplified FFT
-        let fft_mag = self.compute_fft(&resized, size);
+        // Compute real FFT (O(n² log n) instead of O(n⁴))
+        let fft_mag = self.compute_fft_real(&resized, size);
 
         // Detect cross pattern
         let cross_score = self.detect_cross_pattern(&fft_mag, size);
@@ -328,14 +353,29 @@ impl Analyzer {
             .map(|&v| ((v / max_val) * 255.0 * 2.0).min(255.0) as u8)
             .collect();
 
-        // Tuned: cross_score > 0.25 catches more upscaled AI images
-        let is_ai = cross_score > 0.25;
+        // cross_score > 0.25 = likely AI, < 0.15 = likely human
+        let ai_probability = Self::to_probability(cross_score, 0.20, 15.0, false);
 
         (MethodResult {
             data,
-            is_ai,
-            metrics: vec![("cross_score".into(), cross_score)],
+            ai_probability,
+            metrics: vec![
+                ("cross_score".into(), cross_score),
+                ("fft_size".into(), size as f32),
+            ],
         }, size)
+    }
+
+    // Calculate optimal FFT size (power of 2) based on image size
+    // Larger images get higher resolution FFT for better pattern detection
+    fn optimal_fft_size(min_dimension: u32) -> u32 {
+        // Find next power of 2
+        let next_pow2 = (min_dimension as f32).log2().ceil() as u32;
+        let ideal_size = 1u32 << next_pow2;
+        
+        // Clamp between 256 (minimum for good detection) and 2048 (max for performance)
+        // For very large images (4K+), cap at 2048 to avoid memory issues
+        ideal_size.clamp(256, 2048)
     }
 
     fn resize_gray(&self, new_width: u32, new_height: u32) -> Vec<f32> {
@@ -354,32 +394,52 @@ impl Analyzer {
         result
     }
 
-    fn compute_fft(&self, data: &[f32], size: u32) -> Vec<f32> {
-        let center = size as f32 / 2.0;
-        let mut result = vec![0.0; (size * size) as usize];
-        let step = 4;
+    // Real FFT using Cooley-Tukey algorithm - O(n² log n) instead of O(n⁴)
+    fn compute_fft_real(&self, data: &[f32], size: u32) -> Vec<f32> {
+        let n = size as usize;
+        let mut planner = FftPlanner::<f32>::new();
+        let fft = planner.plan_fft_forward(n);
 
-        for fy in 0..size {
-            for fx in 0..size {
-                let mut sum_real = 0.0;
-                let mut sum_imag = 0.0;
+        // Convert to complex and apply window function
+        let mut buffer: Vec<Complex<f32>> = data.iter()
+            .map(|&v| Complex::new(v / 255.0, 0.0))
+            .collect();
 
-                for y in (0..size).step_by(step) {
-                    for x in (0..size).step_by(step) {
-                        let angle = 2.0 * PI * (
-                            (fx as f32 - center) * x as f32 / size as f32 +
-                            (fy as f32 - center) * y as f32 / size as f32
-                        );
-                        let val = data[(y * size + x) as usize] / 255.0;
-                        sum_real += val * angle.cos();
-                        sum_imag += val * angle.sin();
-                    }
-                }
+        // 2D FFT: transform rows, then columns
+        // Transform rows
+        for y in 0..n {
+            let start = y * n;
+            let mut row: Vec<Complex<f32>> = buffer[start..start + n].to_vec();
+            fft.process(&mut row);
+            buffer[start..start + n].copy_from_slice(&row);
+        }
 
-                result[(fy * size + fx) as usize] = 
-                    (sum_real * sum_real + sum_imag * sum_imag).sqrt();
+        // Transform columns
+        let mut col = vec![Complex::new(0.0, 0.0); n];
+        for x in 0..n {
+            for y in 0..n {
+                col[y] = buffer[y * n + x];
+            }
+            fft.process(&mut col);
+            for y in 0..n {
+                buffer[y * n + x] = col[y];
             }
         }
+
+        // Compute magnitude and shift zero frequency to center
+        let half = n / 2;
+        let mut result = vec![0.0f32; n * n];
+        
+        for y in 0..n {
+            for x in 0..n {
+                let src_x = (x + half) % n;
+                let src_y = (y + half) % n;
+                let c = buffer[src_y * n + src_x];
+                // Log scale for better visualization
+                result[y * n + x] = (c.norm() + 1.0).ln();
+            }
+        }
+
         result
     }
 
@@ -493,14 +553,13 @@ impl Analyzer {
         let var_of_var = var_of_var.sqrt();
 
         let uniformity_score = 1.0 / (1.0 + var_of_var / 10.0);
-        // Tuned for anime: 
-        // - AI has uniformity > 0.65 (very even noise distribution)
-        // - Human brushwork has directional bias > 0.10 (hand movement patterns)
-        let is_uniform = uniformity_score > 0.65;
-        let has_direction = directional_bias > 0.10;
-
-        // AI = uniform noise with no directional stroke patterns
-        let is_ai = is_uniform && !has_direction;
+        
+        // uniformity > 0.65 = AI, < 0.50 = human
+        let uniformity_prob = Self::to_probability(uniformity_score, 0.57, 10.0, false);
+        // directional_bias < 0.10 = AI (no brush direction), > 0.15 = human
+        let direction_prob = Self::to_probability(directional_bias, 0.12, 30.0, true);
+        // Combine: high uniformity AND low direction = AI
+        let ai_probability = (uniformity_prob * 0.5 + direction_prob * 0.5).clamp(0.0, 1.0);
 
         let max_noise = noise.iter().cloned().fold(0.0f32, f32::max);
         let data: Vec<u8> = noise.iter()
@@ -509,7 +568,7 @@ impl Analyzer {
 
         MethodResult {
             data,
-            is_ai,
+            ai_probability,
             metrics: vec![
                 ("uniformity".into(), uniformity_score),
                 ("directional_bias".into(), directional_bias),
@@ -607,14 +666,12 @@ impl Analyzer {
             0.0
         };
 
-        // Tuned for anime: 
-        // - AI has > 30% mathematically perfect gradients
-        // - Human digital art has < 25% (even with gradient tools, artists paint over)
-        let is_ai = perfect_ratio > 0.30;
+        // perfect_ratio > 0.30 = AI, < 0.20 = human
+        let ai_probability = Self::to_probability(perfect_ratio, 0.25, 20.0, false);
 
         MethodResult {
             data: expanded,
-            is_ai,
+            ai_probability,
             metrics: vec![
                 ("perfect_ratio".into(), perfect_ratio),
                 ("perfect_count".into(), perfect_count as f32),
@@ -632,7 +689,7 @@ impl Analyzer {
         if blocks_x < 2 || blocks_y < 2 {
             return MethodResult {
                 data: vec![0; (self.width * self.height) as usize],
-                is_ai: false,
+                ai_probability: 0.5, // Inconclusive for small images
                 metrics: vec![
                     ("coherence".into(), 0.0),
                     ("uniformity".into(), 0.0),
@@ -713,15 +770,15 @@ impl Analyzer {
             .map(|&v| v.min(255.0).max(0.0) as u8)
             .collect();
 
-        // Tuned for anime:
-        // - AI generates everything in one shot = coherence > 0.80
-        // - Human art made in sessions has coherence < 0.75
-        // - Style uniformity > 0.55 indicates same "hand" everywhere
-        let is_ai = coherence > 0.80 && style_uniformity > 0.55;
+        // coherence > 0.80 = AI, < 0.70 = human
+        let coherence_prob = Self::to_probability(coherence, 0.75, 15.0, false);
+        // style_uniformity > 0.55 = AI, < 0.45 = human
+        let uniformity_prob = Self::to_probability(style_uniformity, 0.50, 12.0, false);
+        let ai_probability = (coherence_prob * 0.6 + uniformity_prob * 0.4).clamp(0.0, 1.0);
 
         MethodResult {
             data,
-            is_ai,
+            ai_probability,
             metrics: vec![
                 ("coherence".into(), coherence),
                 ("uniformity".into(), style_uniformity),
@@ -853,15 +910,20 @@ impl Analyzer {
         dot / (norm_a.sqrt() * norm_b.sqrt() + 0.0001)
     }
 
-    fn get_verdict(score: u32) -> (String, String, String) {
-        if score >= 6 {
-            ("LIKELY AI-GENERATED".into(), "85-95%".into(), "high".into())
-        } else if score >= 4 {
-            ("PROBABLY AI".into(), "65-85%".into(), "medium".into())
-        } else if score >= 2 {
-            ("POSSIBLY AI".into(), "40-65%".into(), "medium".into())
+    fn get_verdict(avg_probability: f32) -> (String, String, String) {
+        let pct = (avg_probability * 100.0).round() as u32;
+        let confidence_str = format!("{}%", pct);
+        
+        if avg_probability >= 0.75 {
+            ("LIKELY AI-GENERATED".into(), confidence_str, "high".into())
+        } else if avg_probability >= 0.55 {
+            ("PROBABLY AI".into(), confidence_str, "medium".into())
+        } else if avg_probability >= 0.40 {
+            ("INCONCLUSIVE".into(), confidence_str, "medium".into())
+        } else if avg_probability >= 0.25 {
+            ("PROBABLY HUMAN".into(), confidence_str, "low".into())
         } else {
-            ("LIKELY HUMAN-MADE".into(), "70-90%".into(), "low".into())
+            ("LIKELY HUMAN-MADE".into(), confidence_str, "low".into())
         }
     }
 
@@ -877,18 +939,24 @@ impl Analyzer {
         let gradients = self.analyze_gradients();
         let clip_space = self.analyze_clip_space();
 
-        let mut score = 0u32;
-        if noise.is_ai { score += 2; }
-        if high_pass.is_ai { score += 1; }
-        if ela.is_ai { score += 1; }
-        if posterize.is_ai { score += 1; }
-        if channels.is_ai { score += 1; }
-        if fft.is_ai { score += 1; }
-        if noise_patterns.is_ai { score += 1; }
-        if gradients.is_ai { score += 1; }
-        if clip_space.is_ai { score += 1; }
+        // Weighted average of all probabilities
+        // FFT and noise get higher weight as they're more reliable
+        let total_weight = 2.0 + 1.0 + 1.0 + 1.0 + 1.0 + 2.0 + 1.5 + 1.0 + 1.5;
+        let weighted_sum = 
+            noise.ai_probability * 2.0 +
+            high_pass.ai_probability * 1.0 +
+            ela.ai_probability * 1.0 +
+            posterize.ai_probability * 1.0 +
+            channels.ai_probability * 1.0 +
+            fft.ai_probability * 2.0 +
+            noise_patterns.ai_probability * 1.5 +
+            gradients.ai_probability * 1.0 +
+            clip_space.ai_probability * 1.5;
+        
+        let avg_probability = weighted_sum / total_weight;
+        let score = (avg_probability * 10.0).round() as u32;
 
-        let (verdict, confidence, verdict_class) = Self::get_verdict(score);
+        let (verdict, confidence, verdict_class) = Self::get_verdict(avg_probability);
 
         let result = AnalysisResult {
             score,

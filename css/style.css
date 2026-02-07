@@ -149,6 +149,17 @@ h2 {
     background: var(--border);
 }
 
+.results-actions {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-top: 2rem;
+}
+
+.results-actions .secondary-btn {
+    margin-top: 0;
+}
+
 /* Preview Section */
 .image-container {
     background: var(--bg-secondary);
@@ -197,6 +208,30 @@ h2 {
 .loader-step {
     color: var(--text-secondary);
     font-style: italic;
+}
+
+.progress-bar {
+    width: 100%;
+    max-width: 300px;
+    height: 8px;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    margin: 1.5rem auto 0.5rem;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--accent), #a371f7);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.progress-text {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-family: monospace;
 }
 
 /* Score Display */
@@ -271,6 +306,12 @@ h2 {
     color: var(--danger);
 }
 
+.indicator-tag.uncertain {
+    background: rgba(210, 153, 34, 0.15);
+    border: 1px solid var(--warning);
+    color: var(--warning);
+}
+
 .indicator-tag.clear {
     background: rgba(63, 185, 80, 0.15);
     border: 1px solid var(--success);
@@ -331,6 +372,10 @@ h2 {
 
 .panel-result.detected {
     border-left: 3px solid var(--danger);
+}
+
+.panel-result.uncertain {
+    border-left: 3px solid var(--warning);
 }
 
 .panel-result.clear {
@@ -449,16 +494,106 @@ footer p {
         font-size: 1.8rem;
     }
 
+    .subtitle {
+        font-size: 0.95rem;
+    }
+
+    main {
+        padding: 1rem 0.75rem;
+    }
+
     .score-display {
         flex-direction: column;
         text-align: center;
+        padding: 1rem;
+        gap: 1rem;
+    }
+
+    .score-circle {
+        width: 80px;
+        height: 80px;
+    }
+
+    .score-value {
+        font-size: 2rem;
     }
 
     .analysis-grid {
         grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+
+    .analysis-panel {
+        padding: 1rem;
+    }
+
+    .analysis-panel h3 {
+        font-size: 1rem;
     }
 
     .upload-area {
         padding: 2rem 1rem;
+    }
+
+    .upload-icon {
+        font-size: 3rem;
+    }
+
+    .indicators-list {
+        gap: 0.5rem;
+    }
+
+    .indicator-tag {
+        padding: 0.4rem 0.75rem;
+        font-size: 0.8rem;
+    }
+
+    .results-actions {
+        flex-direction: column;
+    }
+
+    .results-actions .secondary-btn {
+        width: 100%;
+        text-align: center;
+    }
+
+    .guide-item {
+        padding: 1rem;
+    }
+
+    .tech-info {
+        padding: 1rem;
+    }
+
+    h2 {
+        font-size: 1.25rem;
+    }
+
+    .primary-btn,
+    .secondary-btn {
+        width: 100%;
+        text-align: center;
+    }
+}
+
+@media (max-width: 480px) {
+    header {
+        padding: 1.5rem 0.75rem;
+    }
+
+    header h1 {
+        font-size: 1.5rem;
+    }
+
+    .upload-area {
+        padding: 1.5rem 0.75rem;
+    }
+
+    .panel-desc {
+        font-size: 0.8rem;
+    }
+
+    .image-container canvas {
+        max-height: 280px;
     }
 }
