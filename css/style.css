@@ -228,6 +228,130 @@ h2 {
     transition: width 0.3s ease;
 }
 
+/* Prediction prompt (before analysis) */
+.prediction-prompt {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    text-align: center;
+}
+
+.prediction-prompt p {
+    margin-bottom: 1rem;
+    color: var(--text-secondary);
+}
+
+.prediction-buttons {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.predict-btn {
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    border: 2px solid var(--border);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.95rem;
+}
+
+.predict-btn:hover {
+    border-color: var(--accent);
+}
+
+.predict-btn.selected {
+    border-width: 2px;
+}
+
+.predict-human.selected {
+    background: rgba(63, 185, 80, 0.2);
+    border-color: var(--success);
+    color: var(--success);
+}
+
+.predict-unsure.selected {
+    background: rgba(210, 153, 34, 0.2);
+    border-color: var(--warning);
+    color: var(--warning);
+}
+
+.predict-ai.selected {
+    background: rgba(248, 81, 73, 0.2);
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+/* Feedback section (after analysis) */
+.feedback-section {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin: 2rem 0;
+    text-align: center;
+}
+
+.feedback-section p {
+    margin-bottom: 1rem;
+    color: var(--text-secondary);
+}
+
+.feedback-buttons {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.feedback-btn {
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    border: 2px solid var(--border);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.95rem;
+}
+
+.feedback-btn:hover {
+    border-color: var(--accent);
+}
+
+.feedback-btn.selected {
+    pointer-events: none;
+}
+
+.feedback-human.selected {
+    background: rgba(63, 185, 80, 0.2);
+    border-color: var(--success);
+    color: var(--success);
+}
+
+.feedback-unsure.selected {
+    background: rgba(210, 153, 34, 0.2);
+    border-color: var(--warning);
+    color: var(--warning);
+}
+
+.feedback-ai.selected {
+    background: rgba(248, 81, 73, 0.2);
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.feedback-thanks {
+    color: var(--success);
+    margin-top: 1rem;
+    font-style: italic;
+}
+
 .progress-text {
     color: var(--text-secondary);
     font-size: 0.85rem;

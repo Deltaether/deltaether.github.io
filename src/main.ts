@@ -104,6 +104,8 @@ let currentHeight = 0;
 let lastResult: AnalysisResult | null = null;
 let worker: Worker | null = null;
 let workerReady = false;
+let userPrediction: 'human' | 'unsure' | 'ai' | null = null;
+let userFeedback: 'human' | 'unsure' | 'ai' | null = null;
 
 function initWorker(): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -163,6 +165,13 @@ function displayPreview(img: HTMLImageElement, file: File): void {
 
   const fileSize = (file.size / 1024).toFixed(1);
   $('imageInfo').textContent = `${img.width}x${img.height} | ${file.type} | ${fileSize} KB`;
+
+  // Reset prediction state
+  userPrediction = null;
+  userFeedback = null;
+  $('predictionPrompt').classList.remove('hidden');
+  $('analyzeBtn').classList.add('hidden');
+  document.querySelectorAll('.predict-btn').forEach(btn => btn.classList.remove('selected'));
 
   $('upload-section').classList.add('hidden');
   $('preview-section').classList.remove('hidden');
@@ -240,6 +249,10 @@ function displayResults(result: AnalysisResult): void {
   $('loading-section').classList.add('hidden');
   $('results-section').classList.remove('hidden');
 
+  // Reset feedback UI
+  document.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('selected'));
+  $('feedbackThanks').classList.add('hidden');
+
   $('scoreValue').textContent = result.score.toString();
   $('scoreCircle').className = `score-circle ${result.verdict_class}`;
   $('verdictText').textContent = result.verdict;
@@ -300,8 +313,8 @@ function renderCanvas(
 
 const ANALYTICS_URL = 'https://script.google.com/macros/s/AKfycbwMJcZuj9hxCrGIKRqeZoE_ctpF4gtBpiqBXPhN3PvgbHqjFh1M3I1YohpGC7qXPFfbFQ/exec';
 
-function buildExportData(result: AnalysisResult) {
-  return {
+function buildExportData(result: AnalysisResult, includeFeedback = false) {
+  const data: Record<string, unknown> = {
     timestamp: new Date().toISOString(),
     dimensions: { width: currentWidth, height: currentHeight },
     score: result.score,
@@ -346,11 +359,18 @@ function buildExportData(result: AnalysisResult) {
       }
     }
   };
+  
+  if (includeFeedback) {
+    data.user_prediction = userPrediction;
+    data.user_feedback = userFeedback;
+  }
+  
+  return data;
 }
 
-async function sendAnalytics(result: AnalysisResult): Promise<void> {
+async function sendAnalytics(result: AnalysisResult, withFeedback = false): Promise<void> {
   try {
-    const data = buildExportData(result);
+    const data = buildExportData(result, withFeedback);
     await fetch(ANALYTICS_URL, {
       method: 'POST',
       mode: 'no-cors', // Apps Script doesn't support CORS preflight
@@ -384,9 +404,14 @@ function reset(): void {
   $('preview-section').classList.add('hidden');
   $('upload-section').classList.remove('hidden');
   lastResult = null;
+  userPrediction = null;
+  userFeedback = null;
 
+  // Reset UI state
   const input = $<HTMLInputElement>('imageInput');
   input.value = '';
+  document.querySelectorAll('.predict-btn, .feedback-btn').forEach(b => b.classList.remove('selected'));
+  $('feedbackThanks').classList.add('hidden');
 }
 
 async function init(): Promise<void> {
@@ -441,6 +466,41 @@ async function init(): Promise<void> {
   analyzeBtn.addEventListener('click', runAnalysis);
   resetBtn.addEventListener('click', reset);
   exportBtn.addEventListener('click', exportResults);
+
+  // Prediction buttons (before analysis)
+  document.querySelectorAll('.predict-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      const prediction = target.dataset.prediction as 'human' | 'unsure' | 'ai';
+      userPrediction = prediction;
+      
+      // Update UI
+      document.querySelectorAll('.predict-btn').forEach(b => b.classList.remove('selected'));
+      target.classList.add('selected');
+      
+      // Show analyze button
+      $('analyzeBtn').classList.remove('hidden');
+    });
+  });
+
+  // Feedback buttons (after analysis)
+  document.querySelectorAll('.feedback-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      const feedback = target.dataset.feedback as 'human' | 'unsure' | 'ai';
+      userFeedback = feedback;
+      
+      // Update UI
+      document.querySelectorAll('.feedback-btn').forEach(b => b.classList.remove('selected'));
+      target.classList.add('selected');
+      $('feedbackThanks').classList.remove('hidden');
+      
+      // Send analytics with feedback
+      if (lastResult) {
+        sendAnalytics(lastResult, true);
+      }
+    });
+  });
 
   // Initialize worker
   try {

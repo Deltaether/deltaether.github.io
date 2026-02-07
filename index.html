@@ -31,7 +31,17 @@
                 <canvas id="originalCanvas"></canvas>
             </div>
             <div class="image-info" id="imageInfo"></div>
-            <button id="analyzeBtn" class="primary-btn">Run Analysis</button>
+            
+            <div class="prediction-prompt" id="predictionPrompt">
+                <p>Before analysis, what's your gut feeling?</p>
+                <div class="prediction-buttons">
+                    <button class="predict-btn predict-human" data-prediction="human">Looks Human-Made</button>
+                    <button class="predict-btn predict-unsure" data-prediction="unsure">Not Sure</button>
+                    <button class="predict-btn predict-ai" data-prediction="ai">Looks AI-Generated</button>
+                </div>
+            </div>
+            
+            <button id="analyzeBtn" class="primary-btn hidden">Run Analysis</button>
         </section>
 
         <section id="loading-section" class="hidden">
@@ -127,6 +137,16 @@
                     <canvas id="clipCanvas"></canvas>
                     <div class="panel-result" id="clipResult"></div>
                 </div>
+            </div>
+
+            <div class="feedback-section" id="feedbackSection">
+                <p>Now that you've seen the analysis, what do you think?</p>
+                <div class="feedback-buttons">
+                    <button class="feedback-btn feedback-human" data-feedback="human">It's Human-Made</button>
+                    <button class="feedback-btn feedback-unsure" data-feedback="unsure">Still Not Sure</button>
+                    <button class="feedback-btn feedback-ai" data-feedback="ai">It's AI-Generated</button>
+                </div>
+                <p class="feedback-thanks hidden" id="feedbackThanks">Thanks for your feedback!</p>
             </div>
 
             <div class="results-actions">
