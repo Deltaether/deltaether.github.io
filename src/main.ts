@@ -311,7 +311,7 @@ function renderCanvas(
   ctx.putImageData(imgData, 0, 0);
 }
 
-const ANALYTICS_URL = 'https://script.google.com/macros/s/AKfycbwMJcZuj9hxCrGIKRqeZoE_ctpF4gtBpiqBXPhN3PvgbHqjFh1M3I1YohpGC7qXPFfbFQ/exec';
+const ANALYTICS_URL = 'https://script.google.com/macros/s/AKfycbzE62qn68Of5E02SqPtMXpjTcRkijZqvFUleZzeInzRO58B3qYzQLgHzv48t2-7lGExEA/exec';
 
 function buildExportData(result: AnalysisResult, includeFeedback = false) {
   const data: Record<string, unknown> = {
